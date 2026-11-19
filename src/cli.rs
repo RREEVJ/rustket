@@ -28,6 +28,8 @@ pub enum Command {
     Doctor,
     /// Update rustket itself
     Update,
+    /// Upgrade all installed bits
+    Upgrade,
     /// Manage package taps
     Tap {
         #[command(subcommand)]

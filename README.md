@@ -9,26 +9,34 @@ SHA-256, and makes installed commands available through `~/.rustket/bin`.
 Install the matching prebuilt Rustket binary with one command:
 
 ```sh
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Rustket/rustket/main/install.sh)"
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Rustket/rustket/main/install.sh)" && export PATH="$HOME/.rustket/bin:$PATH"
 ```
 
 The installer selects your macOS or Linux architecture, verifies the archive
 against the release SHA-256 checksums, and installs Rustket in
 `~/.rustket/bin`. It also preconfigures the official
 [`Rustket/rustket-bits`](https://github.com/Rustket/rustket-bits) tap and adds
-the bin directory to the configuration for Bash, Zsh, or Fish. Open a new
-shell, or add it to the current shell's `PATH`:
-
-```sh
-export PATH="$HOME/.rustket/bin:$PATH"
-```
+the bin directory to the configuration for Bash, Zsh, or Fish. The `&& export`
+updates the current Bash or Zsh shell; Fish users can open a new shell.
 
 Prebuilt binaries are also available on the
 [0.1.0 release page](https://github.com/Rustket/rustket/releases/tag/0.1.0).
 
-To build from source instead, install Rust and Cargo, clone the repository,
-then run `cargo install --path .`. Source installs should add the official tap
-with `rustket tap add Rustket/rustket-bits`.
+To build from source instead, install Rust and Cargo, then run:
+
+```sh
+cargo install --git https://github.com/Rustket/rustket.git
+rustket tap add Rustket/rustket-bits
+```
+
+## macOS verification warning
+
+The 0.1.0 prebuilt macOS binaries are not code-signed or notarized. If Gatekeeper
+says Rustket "could not be verified," use the source-build instructions above
+instead of bypassing the warning. For prebuilt downloads to pass Gatekeeper,
+future macOS releases must be signed with an Apple Developer ID and notarized.
+SHA-256 verification checks the downloaded file's integrity; it does not
+replace Apple's signature and notarization checks.
 
 ## Install an app
 
@@ -47,9 +55,9 @@ rustket install <app-name>
 ```
 
 Rustket currently installs command-line executables, not macOS `.app` bundles.
-Add `~/.rustket/bin` to your `PATH` to run installed apps from any directory.
-Put this in your shell startup file (for example, `~/.zshrc` on macOS or
-`~/.bashrc` on Linux), then open a new shell:
+The installer adds `~/.rustket/bin` to your shell configuration. If you
+installed Rustket from source, add it to your `PATH` to run installed apps from
+any directory:
 
 ```sh
 export PATH="$HOME/.rustket/bin:$PATH"
@@ -68,6 +76,7 @@ rustket search <query>
 rustket info <bit>
 rustket doctor
 rustket update
+rustket upgrade
 
 rustket tap add <owner/repo>
 rustket tap list
@@ -84,6 +93,9 @@ rustket tap update
 - `doctor` checks the Rustket directories, `PATH`, Git, and broken links.
 - `tap update` pulls fast-forward updates for all configured taps.
 - `update` refreshes taps and reinstalls the `rustket` bit itself.
+- `upgrade` refreshes taps, then reinstalls every bit currently listed in
+  `~/.rustket/bin`. It attempts the remaining bits if one upgrade fails and
+  reports a nonzero error if any failed.
 
 Run `rustket --help` or `rustket <command> --help` for command-line help.
 

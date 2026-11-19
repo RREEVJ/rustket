@@ -6,3 +6,4 @@ pub mod search;
 pub mod tap;
 pub mod uninstall;
 pub mod update;
+pub mod upgrade;

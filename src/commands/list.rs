@@ -6,10 +6,17 @@ use anyhow::{Context, Result};
 use crate::paths;
 
 pub fn run() -> Result<()> {
+    for name in installed_names()? {
+        println!("{name}");
+    }
+    Ok(())
+}
+
+pub fn installed_names() -> Result<Vec<String>> {
     let bin_dir = paths::root().join("bin");
     let entries = match fs::read_dir(&bin_dir) {
         Ok(entries) => entries,
-        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(()),
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(Vec::new()),
         Err(error) => {
             return Err(error).with_context(|| format!("failed to read {}", bin_dir.display()));
         }
@@ -22,8 +29,5 @@ pub fn run() -> Result<()> {
         })
         .collect::<Result<Vec<_>>>()?;
     names.sort();
-    for name in names {
-        println!("{name}");
-    }
-    Ok(())
+    Ok(names)
 }

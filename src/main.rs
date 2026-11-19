@@ -16,6 +16,7 @@ fn main() -> Result<()> {
         Command::Info { name } => commands::info::run(&name),
         Command::Doctor => commands::doctor::run(),
         Command::Update => commands::update::run(),
+        Command::Upgrade => commands::upgrade::run(),
         Command::Tap { command } => commands::tap::run(command),
     }
 }
