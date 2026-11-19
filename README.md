@@ -4,49 +4,46 @@ Rustket is a small Rust command-line package manager for macOS and Linux. It
 installs prebuilt programs from GitHub taps, verifies each download with
 SHA-256, and makes installed commands available through `~/.rustket/bin`.
 
-## Install Rustket
+## Install the Rustket command
 
-Prebuilt macOS and Linux binaries are available on the
-[0.1.0 release page](https://github.com/Rustket/rustket/releases/tag/0.1.0).
-Choose the archive matching your operating system and CPU architecture:
-
-- `macos-aarch64` or `macos-x86_64`
-- `linux-aarch64` or `linux-x86_64`
-
-Each archive contains the `rustket` executable. Extract it and place it in a
-directory on your `PATH`.
-
-To build and install from source, install Rust and Cargo, then run:
+With Rust and Cargo installed, install Rustket directly from GitHub:
 
 ```sh
-git clone https://github.com/Rustket/rustket.git
-cd rustket
-cargo install --path .
+cargo install --git https://github.com/Rustket/rustket.git
 ```
 
 Cargo installs the CLI in `~/.cargo/bin`. Make sure that directory is on your
-`PATH`.
+`PATH`. Prebuilt macOS and Linux binaries are also available on the
+[0.1.0 release page](https://github.com/Rustket/rustket/releases/tag/0.1.0);
+choose the archive matching your operating system and CPU architecture.
 
-## Quick start
+## Install an app
 
-Add the official tap, then install a bit from it:
+Add a tap that provides the app, then install its bit:
+
+```sh
+rustket tap add <owner>/<tap-repo>
+rustket install <app-name>
+```
+
+For example, the official tap provides Rustket itself:
 
 ```sh
 rustket tap add Rustket/rustket-bits
-rustket search rustket
 rustket install rustket
 ```
 
-Add Rustket's managed binaries to your `PATH` so installed commands can be run
-from any directory. Put this in your shell startup file (for example,
-`~/.zshrc` on macOS or `~/.bashrc` on Linux), then open a new shell:
+Rustket currently installs command-line executables, not macOS `.app` bundles.
+Add `~/.rustket/bin` to your `PATH` to run installed apps from any directory.
+Put this in your shell startup file (for example, `~/.zshrc` on macOS or
+`~/.bashrc` on Linux), then open a new shell:
 
 ```sh
 export PATH="$HOME/.rustket/bin:$PATH"
 ```
 
-`~/.cargo/bin` contains the Rustket CLI when installed with Cargo;
-`~/.rustket/bin` contains commands installed and managed by Rustket.
+`~/.cargo/bin` contains the Rustket CLI installed with Cargo;
+`~/.rustket/bin` contains apps managed by Rustket.
 
 ## Commands
 
