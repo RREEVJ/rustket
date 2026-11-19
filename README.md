@@ -6,31 +6,44 @@ SHA-256, and makes installed commands available through `~/.rustket/bin`.
 
 ## Install the Rustket command
 
-With Rust and Cargo installed, install Rustket directly from GitHub:
+Install the matching prebuilt Rustket binary with one command:
 
 ```sh
-cargo install --git https://github.com/Rustket/rustket.git
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Rustket/rustket/main/install.sh)"
 ```
 
-Cargo installs the CLI in `~/.cargo/bin`. Make sure that directory is on your
-`PATH`. Prebuilt macOS and Linux binaries are also available on the
-[0.1.0 release page](https://github.com/Rustket/rustket/releases/tag/0.1.0);
-choose the archive matching your operating system and CPU architecture.
+The installer selects your macOS or Linux architecture, verifies the archive
+against the release SHA-256 checksums, and installs Rustket in
+`~/.rustket/bin`. It also preconfigures the official
+[`Rustket/rustket-bits`](https://github.com/Rustket/rustket-bits) tap and adds
+the bin directory to the configuration for Bash, Zsh, or Fish. Open a new
+shell, or add it to the current shell's `PATH`:
+
+```sh
+export PATH="$HOME/.rustket/bin:$PATH"
+```
+
+Prebuilt binaries are also available on the
+[0.1.0 release page](https://github.com/Rustket/rustket/releases/tag/0.1.0).
+
+To build from source instead, install Rust and Cargo, clone the repository,
+then run `cargo install --path .`. Source installs should add the official tap
+with `rustket tap add Rustket/rustket-bits`.
 
 ## Install an app
 
-Add a tap that provides the app, then install its bit:
+The official tap is preconfigured by the installer, so you can install Rustket
+itself with:
+
+```sh
+rustket install rustket
+```
+
+For an app from another tap, add that tap and install the app's bit:
 
 ```sh
 rustket tap add <owner>/<tap-repo>
 rustket install <app-name>
-```
-
-For example, the official tap provides Rustket itself:
-
-```sh
-rustket tap add Rustket/rustket-bits
-rustket install rustket
 ```
 
 Rustket currently installs command-line executables, not macOS `.app` bundles.
