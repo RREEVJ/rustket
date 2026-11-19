@@ -22,6 +22,20 @@ updates the current Bash or Zsh shell; Fish users can open a new shell.
 Prebuilt binaries are also available on the
 [0.1.0 release page](https://github.com/Rustket/rustket/releases/tag/0.1.0).
 
+## Install with Homebrew
+
+Install the Rustket CLI from the official Homebrew tap:
+
+```sh
+brew install Rustket/rustket/rustket
+```
+
+Then add the package bits tap:
+
+```sh
+rustket tap add Rustket/rustket-bits
+```
+
 To build from source instead, install Rust and Cargo, then run:
 
 ```sh
