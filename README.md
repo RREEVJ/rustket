@@ -47,6 +47,15 @@ itself with:
 rustket install rustket
 ```
 
+The official tap also provides ripgrep:
+
+```sh
+rustket install ripgrep
+```
+
+Rustket exposes the upstream `rg` executable as `ripgrep` in
+`~/.rustket/bin`.
+
 For an app from another tap, add that tap and install the app's bit:
 
 ```sh
