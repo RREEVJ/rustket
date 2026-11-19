@@ -1,0 +1,94 @@
+name: Build release assets
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version
+        required: true
+        default: "0.1.0"
+        type: string
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            target: aarch64-apple-darwin
+            platform: macos-aarch64
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+            platform: macos-x86_64
+          - runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            platform: linux-x86_64
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            platform: linux-aarch64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust target
+        run: rustup target add "${{ matrix.target }}"
+      - name: Build
+        run: cargo build --locked --release --target "${{ matrix.target }}"
+      - name: Package
+        env:
+          VERSION: ${{ inputs.version }}
+          TARGET: ${{ matrix.target }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          mkdir -p dist
+          archive="rustket-${VERSION}-${PLATFORM}.tar.gz"
+          tar -czf "dist/${archive}" -C "target/${TARGET}/release" rustket
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.platform }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+
+  manifest:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+      - name: Generate checksums and bit definition
+        env:
+          VERSION: ${{ inputs.version }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9.-]+)?$ ]]; then
+            echo "Invalid version: $VERSION" >&2
+            exit 1
+          fi
+
+          cd dist
+          sha256sum rustket-"${VERSION}"-*.tar.gz > SHA256SUMS
+          {
+            printf '# Release page: https://github.com/%s/releases/tag/%s\n' "$REPOSITORY" "$VERSION"
+            printf 'name = "rustket"\nversion = "%s"\n\n' "$VERSION"
+
+            for platform in macos-aarch64 macos-x86_64 linux-x86_64 linux-aarch64; do
+              archive="rustket-${VERSION}-${platform}.tar.gz"
+              digest=$(sha256sum "$archive" | cut -d ' ' -f 1)
+              printf '[platform."%s"]\n' "$platform"
+              printf 'url = "https://github.com/%s/releases/download/%s/%s"\n' "$REPOSITORY" "$VERSION" "$archive"
+              printf 'sha256 = "%s"\nbin = "rustket"\n\n' "$digest"
+            done
+          } > rustket.toml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rustket-release-package
+          path: |
+            dist/*.tar.gz
+            dist/SHA256SUMS
+            dist/rustket.toml
+          if-no-files-found: error
+          retention-days: 7
