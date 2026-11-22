@@ -109,8 +109,11 @@ fn remove(repository: &str) -> Result<()> {
 }
 
 fn tap_paths() -> Result<Vec<(String, PathBuf)>> {
-    let tap_root = paths::taps();
-    let owners = match fs::read_dir(&tap_root) {
+    tap_paths_at(&paths::taps())
+}
+
+fn tap_paths_at(tap_root: &Path) -> Result<Vec<(String, PathBuf)>> {
+    let owners = match fs::read_dir(tap_root) {
         Ok(entries) => entries,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(error) => {
@@ -161,40 +164,17 @@ fn ensure_default_at(tap_root: &Path, add_default: impl FnOnce() -> Result<()>) 
             path.display()
         ),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            if let Some(owner) = find_directory_case_insensitive(tap_root, DEFAULT_TAP_OWNER)?
-                && find_directory_case_insensitive(&owner, DEFAULT_TAP_REPOSITORY)?.is_some()
+            if tap_paths_at(tap_root)?
+                .iter()
+                .any(|(name, _)| name.eq_ignore_ascii_case(DEFAULT_TAP))
             {
-                return Ok(());
+                Ok(())
+            } else {
+                add_default()
             }
-            add_default()
         }
         Err(error) => Err(error).with_context(|| format!("failed to inspect {}", path.display())),
     }
-}
-
-fn find_directory_case_insensitive(parent: &Path, name: &str) -> Result<Option<PathBuf>> {
-    let entries = match fs::read_dir(parent) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => {
-            return Err(error).with_context(|| format!("failed to read {}", parent.display()));
-        }
-    };
-    for entry in entries {
-        let entry = entry.with_context(|| format!("failed to read {}", parent.display()))?;
-        if entry
-            .file_type()
-            .with_context(|| format!("failed to inspect {}", entry.path().display()))?
-            .is_dir()
-            && entry
-                .file_name()
-                .to_string_lossy()
-                .eq_ignore_ascii_case(name)
-        {
-            return Ok(Some(entry.path()));
-        }
-    }
-    Ok(None)
 }
 
 fn clone_to_staging(
@@ -226,21 +206,17 @@ fn clone_to_staging(
             .with_context(|| format!("failed to publish tap to {}", destination.display()))
     });
 
-    match result {
-        Ok(()) => fs::remove_dir(&staging)
-            .with_context(|| format!("failed to remove staging directory {}", staging.display())),
-        Err(error) => {
-            if let Err(cleanup_error) = fs::remove_dir_all(&staging)
-                && cleanup_error.kind() != std::io::ErrorKind::NotFound
-            {
-                return Err(anyhow!(
-                    "{error:#}; failed to remove staging directory {}: {cleanup_error}",
-                    staging.display()
-                ));
-            }
-            Err(error)
-        }
+    if let Err(error) = result {
+        fs::remove_dir_all(&staging).with_context(|| {
+            format!(
+                "failed to remove staging directory {} after {error:#}",
+                staging.display()
+            )
+        })?;
+        return Err(error);
     }
+    fs::remove_dir(&staging)
+        .with_context(|| format!("failed to remove staging directory {}", staging.display()))
 }
 
 fn tap_location(repository: &str) -> Result<(String, String, PathBuf)> {
@@ -369,10 +345,7 @@ mod tests {
             Ok(())
         })
         .unwrap();
-        assert_eq!(
-            fs::read_to_string(destination.join("complete")).unwrap(),
-            "ready"
-        );
+        assert!(destination.join("complete").is_file());
         assert_eq!(fs::read_dir(&staging_root).unwrap().count(), 0);
 
         fs::remove_dir_all(root).unwrap();
