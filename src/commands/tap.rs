@@ -1,11 +1,15 @@
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command as Proc;
 
 use anyhow::{Context, Result, anyhow, bail};
 
 use crate::cli::TapCommand;
 use crate::paths;
+
+const DEFAULT_TAP: &str = "Rustket/rustket-bits";
+const DEFAULT_TAP_OWNER: &str = "Rustket";
+const DEFAULT_TAP_REPOSITORY: &str = "rustket-bits";
 
 pub fn run(command: TapCommand) -> Result<()> {
     match command {
@@ -16,12 +20,13 @@ pub fn run(command: TapCommand) -> Result<()> {
     }
 }
 
+pub fn ensure_default() -> Result<()> {
+    ensure_default_at(&paths::taps(), || add(DEFAULT_TAP))
+}
+
 pub fn update_all() -> Result<()> {
+    ensure_default()?;
     let taps = tap_paths()?;
-    if taps.is_empty() {
-        println!("no taps configured");
-        return Ok(());
-    }
     for (name, path) in taps {
         let output = Proc::new("git")
             .arg("-C")
@@ -66,6 +71,7 @@ fn add(repository: &str) -> Result<()> {
 }
 
 fn list() -> Result<()> {
+    ensure_default()?;
     let taps = tap_paths()?;
     for (name, _) in taps {
         println!("{name}");
@@ -135,6 +141,21 @@ fn tap_paths() -> Result<Vec<(String, PathBuf)>> {
     Ok(taps)
 }
 
+fn ensure_default_at(tap_root: &Path, add_default: impl FnOnce() -> Result<()>) -> Result<()> {
+    let path = tap_root
+        .join(DEFAULT_TAP_OWNER)
+        .join(DEFAULT_TAP_REPOSITORY);
+    match fs::symlink_metadata(&path) {
+        Ok(metadata) if metadata.file_type().is_dir() => Ok(()),
+        Ok(_) => bail!(
+            "default tap path exists but is not a directory: {}",
+            path.display()
+        ),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => add_default(),
+        Err(error) => Err(error).with_context(|| format!("failed to inspect {}", path.display())),
+    }
+}
+
 fn tap_location(repository: &str) -> Result<(String, String, PathBuf)> {
     let repository = repository
         .strip_prefix("https://github.com/")
@@ -165,7 +186,19 @@ fn valid_component(component: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::tap_location;
+    use std::fs;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    use super::{ensure_default_at, tap_location};
+
+    fn temp_dir() -> PathBuf {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!("rustket-tap-test-{}-{nonce}", std::process::id()))
+    }
 
     #[test]
     fn accepts_github_url_and_shorthand() {
@@ -182,5 +215,35 @@ mod tests {
     fn rejects_path_traversal_and_non_github_urls() {
         assert!(tap_location("../outside/repo").is_err());
         assert!(tap_location("git@github.com:Rustket/rustket-bits.git").is_err());
+    }
+
+    #[test]
+    fn ensures_default_tap_only_when_missing() {
+        let root = temp_dir();
+        let mut added = false;
+        ensure_default_at(&root, || {
+            added = true;
+            Ok(())
+        })
+        .unwrap();
+        assert!(added);
+
+        let existing_root = root.join("existing");
+        fs::create_dir_all(existing_root.join("Rustket").join("rustket-bits")).unwrap();
+        let mut added = false;
+        ensure_default_at(&existing_root, || {
+            added = true;
+            Ok(())
+        })
+        .unwrap();
+        assert!(!added);
+
+        let conflicting_root = root.join("conflicting");
+        let conflicting_path = conflicting_root.join("Rustket").join("rustket-bits");
+        fs::create_dir_all(conflicting_path.parent().unwrap()).unwrap();
+        fs::write(&conflicting_path, "not a directory").unwrap();
+        assert!(ensure_default_at(&conflicting_root, || Ok(())).is_err());
+
+        fs::remove_dir_all(root).unwrap();
     }
 }
