@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command as Proc;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, anyhow, bail};
 
@@ -47,25 +48,33 @@ pub fn update_all() -> Result<()> {
 
 fn add(repository: &str) -> Result<()> {
     let (name, url, destination) = tap_location(repository)?;
-    if destination.exists() {
-        bail!("tap already exists: {name}");
+    match fs::symlink_metadata(&destination) {
+        Ok(_) => bail!("tap already exists: {name}"),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => {
+            return Err(error)
+                .with_context(|| format!("failed to inspect {}", destination.display()));
+        }
     }
     let parent = destination
         .parent()
         .ok_or_else(|| anyhow!("invalid tap path for {name}"))?;
     fs::create_dir_all(parent).with_context(|| format!("failed to create {}", parent.display()))?;
-    let output = Proc::new("git")
-        .args(["clone", "--depth", "1", "--"])
-        .arg(&url)
-        .arg(&destination)
-        .output()
-        .with_context(|| format!("failed to clone tap {name}"))?;
-    if !output.status.success() {
-        bail!(
-            "failed to clone tap {name}: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        );
-    }
+    clone_to_staging(&destination, &paths::root(), |staged_path| {
+        let output = Proc::new("git")
+            .args(["clone", "--depth", "1", "--"])
+            .arg(&url)
+            .arg(staged_path)
+            .output()
+            .with_context(|| format!("failed to run git while cloning tap {name}"))?;
+        if !output.status.success() {
+            bail!(
+                "failed to clone tap {name}: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+        }
+        Ok(())
+    })?;
     println!("added tap {name}");
     Ok(())
 }
@@ -151,8 +160,86 @@ fn ensure_default_at(tap_root: &Path, add_default: impl FnOnce() -> Result<()>) 
             "default tap path exists but is not a directory: {}",
             path.display()
         ),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => add_default(),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            if let Some(owner) = find_directory_case_insensitive(tap_root, DEFAULT_TAP_OWNER)?
+                && find_directory_case_insensitive(&owner, DEFAULT_TAP_REPOSITORY)?.is_some()
+            {
+                return Ok(());
+            }
+            add_default()
+        }
         Err(error) => Err(error).with_context(|| format!("failed to inspect {}", path.display())),
+    }
+}
+
+fn find_directory_case_insensitive(parent: &Path, name: &str) -> Result<Option<PathBuf>> {
+    let entries = match fs::read_dir(parent) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(error).with_context(|| format!("failed to read {}", parent.display()));
+        }
+    };
+    for entry in entries {
+        let entry = entry.with_context(|| format!("failed to read {}", parent.display()))?;
+        if entry
+            .file_type()
+            .with_context(|| format!("failed to inspect {}", entry.path().display()))?
+            .is_dir()
+            && entry
+                .file_name()
+                .to_string_lossy()
+                .eq_ignore_ascii_case(name)
+        {
+            return Ok(Some(entry.path()));
+        }
+    }
+    Ok(None)
+}
+
+fn clone_to_staging(
+    destination: &Path,
+    staging_root: &Path,
+    clone: impl FnOnce(&Path) -> Result<()>,
+) -> Result<()> {
+    fs::create_dir_all(staging_root)
+        .with_context(|| format!("failed to create {}", staging_root.display()))?;
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .context("system clock is before the Unix epoch")?
+        .as_nanos();
+    let staging = staging_root.join(format!(".tap-stage-{}-{nonce}", std::process::id()));
+    fs::create_dir(&staging)
+        .with_context(|| format!("failed to create staging directory {}", staging.display()))?;
+    let staged_tap = staging.join("tap");
+
+    let result = clone(&staged_tap).and_then(|()| {
+        match fs::symlink_metadata(destination) {
+            Ok(_) => bail!("tap destination already exists: {}", destination.display()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(error)
+                    .with_context(|| format!("failed to inspect {}", destination.display()));
+            }
+        }
+        fs::rename(&staged_tap, destination)
+            .with_context(|| format!("failed to publish tap to {}", destination.display()))
+    });
+
+    match result {
+        Ok(()) => fs::remove_dir(&staging)
+            .with_context(|| format!("failed to remove staging directory {}", staging.display())),
+        Err(error) => {
+            if let Err(cleanup_error) = fs::remove_dir_all(&staging)
+                && cleanup_error.kind() != std::io::ErrorKind::NotFound
+            {
+                return Err(anyhow!(
+                    "{error:#}; failed to remove staging directory {}: {cleanup_error}",
+                    staging.display()
+                ));
+            }
+            Err(error)
+        }
     }
 }
 
@@ -190,7 +277,7 @@ mod tests {
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    use super::{ensure_default_at, tap_location};
+    use super::{clone_to_staging, ensure_default_at, tap_location};
 
     fn temp_dir() -> PathBuf {
         let nonce = SystemTime::now()
@@ -238,11 +325,55 @@ mod tests {
         .unwrap();
         assert!(!added);
 
+        let mixed_case_root = root.join("mixed-case");
+        fs::create_dir_all(mixed_case_root.join("rustket").join("RUSTKET-BITS")).unwrap();
+        let mut added = false;
+        ensure_default_at(&mixed_case_root, || {
+            added = true;
+            Ok(())
+        })
+        .unwrap();
+        assert!(!added);
+
         let conflicting_root = root.join("conflicting");
         let conflicting_path = conflicting_root.join("Rustket").join("rustket-bits");
         fs::create_dir_all(conflicting_path.parent().unwrap()).unwrap();
         fs::write(&conflicting_path, "not a directory").unwrap();
         assert!(ensure_default_at(&conflicting_root, || Ok(())).is_err());
+
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn clone_staging_publishes_only_successful_taps_and_cleans_failures() {
+        let root = temp_dir();
+        let staging_root = root.join("staging");
+        let failed_destination = root.join("failed/Rustket/rustket-bits");
+        fs::create_dir_all(failed_destination.parent().unwrap()).unwrap();
+
+        let error = clone_to_staging(&failed_destination, &staging_root, |staged_tap| {
+            fs::create_dir_all(staged_tap)?;
+            fs::write(staged_tap.join("partial"), "incomplete")?;
+            Err(anyhow::anyhow!("simulated clone failure"))
+        })
+        .unwrap_err();
+        assert!(error.to_string().contains("simulated clone failure"));
+        assert!(!failed_destination.exists());
+        assert_eq!(fs::read_dir(&staging_root).unwrap().count(), 0);
+
+        let destination = root.join("successful/Rustket/rustket-bits");
+        fs::create_dir_all(destination.parent().unwrap()).unwrap();
+        clone_to_staging(&destination, &staging_root, |staged_tap| {
+            fs::create_dir_all(staged_tap)?;
+            fs::write(staged_tap.join("complete"), "ready")?;
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(
+            fs::read_to_string(destination.join("complete")).unwrap(),
+            "ready"
+        );
+        assert_eq!(fs::read_dir(&staging_root).unwrap().count(), 0);
 
         fs::remove_dir_all(root).unwrap();
     }
