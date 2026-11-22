@@ -16,9 +16,9 @@ pub fn run() -> Result<()> {
     failures += usize::from(!check("~/.rustket exists", root.is_dir()));
     failures += usize::from(!check("~/.rustket/taps exists", taps.is_dir()));
 
-    let on_path = std::env::var_os("PATH")
-        .is_some_and(|path| std::env::split_paths(&path).any(|entry| entry == bin));
-    failures += usize::from(!check("~/.rustket/bin is on PATH", on_path));
+ let on_path = std::env::var_os("PATH").is_some_and(|p| {
+    std::env::split_paths(&p).any(|e| e == bin || e.canonicalize().ok() == bin.canonicalize().ok())
+});
 
     let git_installed = Proc::new("git")
         .arg("--version")
